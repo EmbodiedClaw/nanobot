@@ -126,13 +126,15 @@ class MCPToolWrapper(Tool):
             )
             return f"(MCP tool call failed: {type(exc).__name__})"
 
-        parts = []
-        for block in result.content:
-            if isinstance(block, types.TextContent):
-                parts.append(block.text)
-            else:
-                parts.append(str(block))
-        return "\n".join(parts) or "(no output)"
+        if not result.content:
+            return "(no output)"
+        block = result.content[0]
+        if isinstance(block, types.TextContent):
+            return block.text or "(no output)"
+        elif isinstance(block, types.ImageContent):
+            return f"(no output)\n[IMAGE]data:{block.mimeType};base64,{block.data}"
+        else:
+            return str(block) or "(no output)"
 
 
 async def connect_mcp_servers(
@@ -176,6 +178,7 @@ async def connect_mcp_servers(
                         follow_redirects=True,
                         timeout=timeout,
                         auth=auth,
+                        trust_env=not cfg.no_proxy,
                     )
 
                 read, write = await stack.enter_async_context(
@@ -189,6 +192,7 @@ async def connect_mcp_servers(
                         headers=cfg.headers or None,
                         follow_redirects=True,
                         timeout=None,
+                        trust_env=not cfg.no_proxy,
                     )
                 )
                 read, write, _ = await stack.enter_async_context(

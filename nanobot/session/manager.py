@@ -106,11 +106,12 @@ class SessionManager:
     Sessions are stored as JSONL files in the sessions directory.
     """
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, fresh_start: bool = False):
         self.workspace = workspace
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
         self.legacy_sessions_dir = get_legacy_sessions_dir()
         self._cache: dict[str, Session] = {}
+        self._fresh_start = fresh_start
 
     def _get_session_path(self, key: str) -> Path:
         """Get the file path for a session."""
@@ -135,7 +136,7 @@ class SessionManager:
         if key in self._cache:
             return self._cache[key]
 
-        session = self._load(key)
+        session = None if self._fresh_start else self._load(key)
         if session is None:
             session = Session(key=key)
 
@@ -191,6 +192,9 @@ class SessionManager:
 
     def save(self, session: Session) -> None:
         """Save a session to disk."""
+        self._cache[session.key] = session
+        if self._fresh_start:
+            return
         path = self._get_session_path(session.key)
 
         with open(path, "w", encoding="utf-8") as f:
@@ -205,8 +209,6 @@ class SessionManager:
             f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
             for msg in session.messages:
                 f.write(json.dumps(msg, ensure_ascii=False) + "\n")
-
-        self._cache[session.key] = session
 
     def invalidate(self, key: str) -> None:
         """Remove a session from the in-memory cache."""

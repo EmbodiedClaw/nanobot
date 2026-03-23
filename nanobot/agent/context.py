@@ -6,11 +6,9 @@ import platform
 from pathlib import Path
 from typing import Any
 
-from nanobot.utils.helpers import current_time_str
-
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
-from nanobot.utils.helpers import build_assistant_message, detect_image_mime
+from nanobot.utils.helpers import build_assistant_message, current_time_str, detect_image_mime
 
 
 class ContextBuilder:
@@ -19,10 +17,11 @@ class ContextBuilder:
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md"]
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, fresh_start: bool = False):
         self.workspace = workspace
-        self.memory = MemoryStore(workspace)
+        self.memory = MemoryStore(workspace, fresh_start=fresh_start)
         self.skills = SkillsLoader(workspace)
+        self.last_observation_image: str | None = None
 
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills."""
@@ -176,7 +175,28 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         tool_call_id: str, tool_name: str, result: Any,
     ) -> list[dict[str, Any]]:
         """Add a tool result to the message list."""
-        messages.append({"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": result})
+        image_urls = []
+        text_lines = []
+        for line in result.split("\n"):
+            if line.startswith("[IMAGE]data:image/"):
+                image_urls.append(line[len("[IMAGE]"):])
+            else:
+                text_lines.append(line)
+
+        if image_urls:
+            self.last_observation_image = image_urls[-1]
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "name": tool_name,
+                "content": "\n".join(text_lines) or "(image returned)",
+            })
+            content: list[dict[str, Any]] = [{"type": "text", "text": f"[Image from {tool_name}]"}]
+            for url in image_urls:
+                content.append({"type": "image_url", "image_url": {"url": url}})
+            messages.append({"role": "user", "content": content})
+        else:
+            messages.append({"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": result})
         return messages
 
     def add_assistant_message(

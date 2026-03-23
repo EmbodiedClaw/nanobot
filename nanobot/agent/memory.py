@@ -77,21 +77,28 @@ class MemoryStore:
 
     _MAX_FAILURES_BEFORE_RAW_ARCHIVE = 3
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, fresh_start: bool = False):
         self.memory_dir = ensure_dir(workspace / "memory")
         self.memory_file = self.memory_dir / "MEMORY.md"
         self.history_file = self.memory_dir / "HISTORY.md"
         self._consecutive_failures = 0
+        self._fresh_start = fresh_start
 
     def read_long_term(self) -> str:
+        if self._fresh_start:
+            return ""
         if self.memory_file.exists():
             return self.memory_file.read_text(encoding="utf-8")
         return ""
 
     def write_long_term(self, content: str) -> None:
+        if self._fresh_start:
+            return
         self.memory_file.write_text(content, encoding="utf-8")
 
     def append_history(self, entry: str) -> None:
+        if self._fresh_start:
+            return
         with open(self.history_file, "a", encoding="utf-8") as f:
             f.write(entry.rstrip() + "\n\n")
 
@@ -118,6 +125,8 @@ class MemoryStore:
         model: str,
     ) -> bool:
         """Consolidate the provided message chunk into MEMORY.md + HISTORY.md."""
+        if self._fresh_start:
+            return True
         if not messages:
             return True
 
@@ -233,8 +242,9 @@ class MemoryConsolidator:
         context_window_tokens: int,
         build_messages: Callable[..., list[dict[str, Any]]],
         get_tool_definitions: Callable[[], list[dict[str, Any]]],
+        fresh_start: bool = False,
     ):
-        self.store = MemoryStore(workspace)
+        self.store = MemoryStore(workspace, fresh_start=fresh_start)
         self.provider = provider
         self.model = model
         self.sessions = sessions
